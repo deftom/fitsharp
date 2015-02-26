@@ -12,7 +12,7 @@ using fitSharp.Machine.Engine;
 
 namespace fitSharp.Machine.Application {
 
-    public class Shell: MarshalByRefObject {
+    public class Shell : MarshalByRefObject {
         public Runnable Runner { get; private set; }
 
         public Shell() {
@@ -56,11 +56,12 @@ namespace fitSharp.Machine.Application {
                 appDomainSetup.ApplicationBase = AppDomain.CurrentDomain.BaseDirectory;
             }
             var newDomain = AppDomain.CreateDomain("fitSharp.Machine", null, appDomainSetup);
+            newDomain.AssemblyResolve += newDomain_AssemblyResolve;
             int result;
             try {
-                var remoteShell = (Shell) newDomain.CreateInstanceAndUnwrap(
+                var remoteShell = (Shell)newDomain.CreateInstanceAndUnwrap(
                                               Assembly.GetExecutingAssembly().GetName().Name,
-                                              typeof (Shell).FullName);
+                                              typeof(Shell).FullName);
                 result = remoteShell.RunInCurrentDomain(commandLineArguments);
             }
             finally {
@@ -70,10 +71,23 @@ namespace fitSharp.Machine.Application {
             return result;
         }
 
+        static Assembly newDomain_AssemblyResolve(object sender, ResolveEventArgs args)
+        {
+            Assembly assembly = null;
+            string strTempAssmbPath = string.Empty;
+            int index = args.Name.IndexOf(",");
+            strTempAssmbPath = System.IO.Path.Combine(string.Empty, args.Name.Substring(0, index > -1 ? index : args.Name.Length) + ".dll");
+            assembly = Assembly.LoadFrom(strTempAssmbPath);
+            System.Diagnostics.Debug.WriteLine(string.Format("Internal loaded OK [{0}]", strTempAssmbPath));
+            //Return the loaded assembly.
+            return assembly;
+        }
+
         void ParseArguments(IList<string> commandLineArguments) {
             var argumentParser = new ArgumentParser();
             argumentParser.AddArgumentHandler("a", value => memory.GetItem<AppDomainSetup>().ConfigurationFile = value);
             argumentParser.AddArgumentHandler("c", value => new SuiteConfiguration(memory).LoadXml(folderModel.GetPageContent(value)));
+            argumentParser.AddArgumentHandler("d", value => memory.GetItem<AppDomainSetup>().PrivateBinPath = value);
             argumentParser.AddArgumentHandler("r", value => memory.GetItem<Settings>().Runner = value);
             argumentParser.SetUnusedHandler(value => extraArguments.Add(value));
             argumentParser.Parse(commandLineArguments);
@@ -114,6 +128,9 @@ namespace fitSharp.Machine.Application {
         }
 
         private void Run() {
+            if (!string.IsNullOrEmpty(memory.GetItem<AppDomainSetup>().PrivateBinPath)) {
+                Environment.CurrentDirectory = memory.GetItem<AppDomainSetup>().PrivateBinPath;
+            }
             result = Runner.Run(extraArguments.ToArray(), memory, progressReporter);
         }
 
